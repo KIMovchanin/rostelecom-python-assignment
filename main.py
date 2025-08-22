@@ -5,8 +5,9 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 import sys
-from openpyxl import load_workbook
-
+from openpyxl import load_workbook, Workbook
+from openpyxl.utils import get_column_letter
+from datetime import datetime, date
 
 class ExcelFilterApp(QWidget):
     def __init__(self):
@@ -105,6 +106,24 @@ class ExcelFilterApp(QWidget):
     def _norm(v) -> str:
         return str(v).strip().casefold() if v is not None else ""
 
+    def _norm_cell_for_compare(self, v) -> str:
+        if v is None:
+            return ""
+        if isinstance(v, datetime):
+            return v.date().isoformat()
+        if isinstance(v, date):
+            return v.isoformat()
+        return str(v).strip().casefold()
+
+    def _try_parse_date(self, s: str):
+        s = s.strip()
+        for fmt in ("%d.%m.%Y", "%Y-%m-%d", "%d/%m/%Y"):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except ValueError:
+                continue
+        return None
+
     def _guess_header_row(self, ws, search_limit: int = 25) -> int:
         expected = {self._norm(header_name) for header_name in ["ФИО", "Должность", "Отдел", "Дата найма", "Зарплата"]}
         best_row = 1
@@ -140,7 +159,91 @@ class ExcelFilterApp(QWidget):
         return norm_to_index, norm_to_original
 
     def run_filter(self):
-        self.log.append("Нажата кнопка \"Выполнить фильтрацию\" — логику добавим на следующем шаге.")
+        in_path = self.input_edit.text().strip()
+        out_path = self.output_edit.text().strip()
+        col_display = self.column_combo.currentText().strip()
+        value_raw = self.value_edit.text().strip()
+
+        if not in_path:
+            self.log.append("Не выбран входной файл.")
+            return
+        if not out_path:
+            self.log.append("Не выбран путь для сохранения результата.")
+            return
+        if not col_display or col_display.startswith("-"):
+            self.log.append("Не выбран столбец для фильтра.")
+            return
+        if self.header_row is None or self.data_start_row is None:
+            self.log.append("Не определена строка заголовков. Выберите файл заново.")
+            return
+
+        try:
+            wb_in = load_workbook(filename=in_path, read_only=True, data_only=True)
+            ws_in = wb_in.active
+            norm_to_index, _ = self._make_header_map(ws_in, self.header_row)
+
+            filter_key = self._norm(col_display)
+            filter_col_idx = norm_to_index.get(filter_key)
+            if filter_col_idx is None:
+                self.log.append(f"В файле не найден столбец: {col_display}")
+                return
+
+            wanted = []
+            missing = []
+            for name in self.REQUIRED_OUT_HEADERS:
+                idx = norm_to_index.get(self._norm(name))
+                if idx is None:
+                    missing.append(name)
+                else:
+                    wanted.append((name, idx))
+
+            if not wanted:
+                self.log.append("Не найдено ни одной из колонок: " + ", ".join(self.REQUIRED_OUT_HEADERS))
+                return
+            if missing:
+                self.log.append("Отсутствуют колонки: " + ", ".join(missing))
+
+            value_date = self._try_parse_date(value_raw)
+            if value_date:
+                value_norm = value_date.isoformat()
+            else:
+                value_norm = self._norm(value_raw)
+
+            matched_rows = []
+            for row in ws_in.iter_rows(min_row=self.data_start_row, values_only=True):
+                cell = row[filter_col_idx] if filter_col_idx < len(row) else None
+                cell_norm = self._norm_cell_for_compare(cell)
+
+                if cell_norm == value_norm:
+                    out_values = []
+                    for _, idx in wanted:
+                        v = row[idx] if idx < len(row) else None
+                        out_values.append(v)
+                    matched_rows.append(out_values)
+
+            wb_out = Workbook()
+            ws_out = wb_out.active
+            ws_out.title = "Результат"
+
+            header_names = [name for name, _ in wanted]
+            ws_out.append(header_names)
+
+            # данные
+            for out_row in matched_rows:
+                ws_out.append(out_row)
+
+            if "Дата найма" in header_names:
+                col_idx = header_names.index("Дата найма") + 1
+                col_letter = get_column_letter(col_idx)
+                for cell in ws_out[col_letter][1:]:
+                    if isinstance(cell.value, (datetime, date)):
+                        cell.number_format = "DD.MM.YYYY"
+
+            wb_out.save(out_path)
+            self.log.append(f"Сохранено {len(matched_rows)} строк в файл: {out_path}")
+
+        except Exception as e:
+            self.log.append(f"Ошибка фильтрации/сохранения: {e!r}")
 
 
 def main():
