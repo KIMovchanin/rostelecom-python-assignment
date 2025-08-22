@@ -12,7 +12,7 @@ from datetime import datetime, date
 class ExcelFilterApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Фильтр Excel — PyQt6 + openpyxl (Python 3.9)")
+        self.setWindowTitle("Фильтр Excel")
         self.resize(800, 420)
         self.header_row = None
         self.data_start_row = None
@@ -113,6 +113,10 @@ class ExcelFilterApp(QWidget):
             return v.date().isoformat()
         if isinstance(v, date):
             return v.isoformat()
+        if isinstance(v, str):
+            d = self._try_parse_date(v)
+            if d:
+                return d.isoformat()
         return str(v).strip().casefold()
 
     def _try_parse_date(self, s: str):
@@ -163,6 +167,7 @@ class ExcelFilterApp(QWidget):
         out_path = self.output_edit.text().strip()
         col_display = self.column_combo.currentText().strip()
         value_raw = self.value_edit.text().strip()
+        value_date = self._try_parse_date(value_raw)
 
         if not in_path:
             self.log.append("Не выбран входной файл.")
@@ -170,7 +175,7 @@ class ExcelFilterApp(QWidget):
         if not out_path:
             self.log.append("Не выбран путь для сохранения результата.")
             return
-        if not col_display or col_display.startswith("-"):
+        if not col_display:
             self.log.append("Не выбран столбец для фильтра.")
             return
         if self.header_row is None or self.data_start_row is None:
@@ -216,9 +221,13 @@ class ExcelFilterApp(QWidget):
 
                 if cell_norm == value_norm:
                     out_values = []
-                    for _, idx in wanted:
-                        v = row[idx] if idx < len(row) else None
-                        out_values.append(v)
+                    for name, idx in wanted:
+                        row_value = row[idx] if idx < len(row) else None
+                        if name == "Дата найма" and isinstance(row_value, str):
+                            d = self._try_parse_date(row_value)
+                            if d:
+                                row_value = d
+                        out_values.append(row_value)
                     matched_rows.append(out_values)
 
             wb_out = Workbook()
@@ -238,9 +247,15 @@ class ExcelFilterApp(QWidget):
                 for cell in ws_out[col_letter][1:]:
                     if isinstance(cell.value, (datetime, date)):
                         cell.number_format = "DD.MM.YYYY"
-
-            wb_out.save(out_path)
-            self.log.append(f"Сохранено {len(matched_rows)} строк в файл: {out_path}")
+            try:
+                wb_out.save(out_path)
+                count = len(matched_rows)
+                if count == 0:
+                    self.log.append(f"Под критерий ничего не подошло. Создан файл только с заголовком: {out_path}")
+                else:
+                    self.log.append(f"Сохранено {count} строк в файл: {out_path}")
+            except PermissionError:
+                self.log.append("Не удалось сохранить: файл открыт в Excel/LibreOffice. Закройте его и повторите.")
 
         except Exception as e:
             self.log.append(f"Ошибка фильтрации/сохранения: {e!r}")
