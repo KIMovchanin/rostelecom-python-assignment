@@ -71,9 +71,32 @@ class ExcelFilterApp(QWidget):
             self.output_edit.setText(path)
 
     def populate_columns(self, path: Path):
-        self.column_combo.clear()
-        self.column_combo.addItems(["— загрузите файл —"])
-        self.log.append(f"Выбран файл: {path}")
+        self.column_combo.clear() # очищаем старые пункты
+
+        try:
+            # открываем на чтение
+            wb = load_workbook(filename=str(path), read_only=True, data_only=True) # data_only = True берёт не формулы, а значения
+            # берём первый лист
+            ws = wb.active
+
+            # берём список ячеек, убирая пробелы и превращая их в строки. None меняем на ""
+            headers = [str(cell.value).strip() if cell.value is not None else "" for cell in ws[1]]
+            headers = [h for h in headers if h] # убираем пустые значения
+
+            # если всё пусто
+            if not headers:
+                self.column_combo.addItems(["- в первой строке нет заголовков -"])
+                self.log.append("В первой строке не найдены заголовки!")
+                return
+
+            self.column_combo.addItems(headers)
+
+            self.log.append(f"Загружены столбцы: {', '.join(headers)}")
+
+        except FileNotFoundError:
+            self.log.append("Файл не найден. Проверь путь.")
+        except Exception as e:
+            self.log.append("Ошибка при чтении Excel: {e!r}")
 
     def run_filter(self):
         self.log.append("Нажата кнопка \"Выполнить фильтрацию\" — логику добавим на следующем шаге.")
