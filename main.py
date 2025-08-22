@@ -1,7 +1,7 @@
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton, QFileDialog,
-    QVBoxLayout, QHBoxLayout, QComboBox, QTextEdit
+    QVBoxLayout, QHBoxLayout, QComboBox, QTextEdit, QMessageBox
 )
 from PyQt6.QtCore import Qt
 import sys
@@ -60,11 +60,19 @@ class ExcelFilterApp(QWidget):
         self.output_btn.clicked.connect(self.browse_output)
         self.run_btn.clicked.connect(self.run_filter)
 
+        self.input_edit.textChanged.connect(self._update_run_enabled)
+        self.output_edit.textChanged.connect(self._update_run_enabled)
+        self.value_edit.textChanged.connect(self._update_run_enabled)
+        self.column_combo.currentIndexChanged.connect(self._update_run_enabled)
+
     def browse_input(self):
         path, _ = QFileDialog.getOpenFileName(self, "Выберите Excel-файл", "", "Excel (*.xlsx)")
         if path:
             self.input_edit.setText(path)
+            if not self.output_edit.text().strip():
+                self.output_edit.setText(self._default_out_path(path))
             self.populate_columns(Path(path))
+            self._update_run_enabled()
 
     def browse_output(self):
         path, _ = QFileDialog.getSaveFileName(self, "Сохранить результат", "", "Excel (*.xlsx)")
@@ -72,6 +80,7 @@ class ExcelFilterApp(QWidget):
             path += ".xlsx"
         if path:
             self.output_edit.setText(path)
+            self._update_run_enabled()
 
     def populate_columns(self, path: Path):
         self.column_combo.clear()
@@ -145,6 +154,26 @@ class ExcelFilterApp(QWidget):
                 best_row = idx
         return best_row
 
+    def _default_out_path(self, in_path: str) -> str:
+        p = Path(in_path)
+        return str(p.with_name(p.stem + "_filtered.xlsx"))
+
+    def _update_run_enabled(self):
+        ok = bool(self.input_edit.text().strip()) and \
+             bool(self.output_edit.text().strip()) and \
+             bool(self.column_combo.currentText().strip()) and \
+             bool(self.value_edit.text().strip())
+        self.run_btn.setEnabled(ok)
+
+    def _warn(self, msg: str):
+        self.log.append(f"Внимание: {msg}")
+        QMessageBox.warning(self, "Внимание", msg)
+
+    def _info(self, msg: str):
+        self.log.append(f"Готово: {msg}")
+        QMessageBox.information(self, "Готово", msg)
+
+
     REQUIRED_OUT_HEADERS = ["ФИО", "Должность", "Отдел", "Дата найма", "Зарплата"]
 
     def _make_header_map(self, ws, header_row: int):
@@ -170,16 +199,16 @@ class ExcelFilterApp(QWidget):
         value_date = self._try_parse_date(value_raw)
 
         if not in_path:
-            self.log.append("Не выбран входной файл.")
+            self._warn("Не выбран входной файл.")
             return
         if not out_path:
-            self.log.append("Не выбран путь для сохранения результата.")
+            self._warn("Не выбран путь для сохранения результата.")
             return
         if not col_display:
-            self.log.append("Не выбран столбец для фильтра.")
+            self._warn("Не выбран столбец для фильтра.")
             return
         if self.header_row is None or self.data_start_row is None:
-            self.log.append("Не определена строка заголовков. Выберите файл заново.")
+            self._warn("Не определена строка заголовков. Выберите файл заново.")
             return
 
         try:
@@ -190,7 +219,7 @@ class ExcelFilterApp(QWidget):
             filter_key = self._norm(col_display)
             filter_col_idx = norm_to_index.get(filter_key)
             if filter_col_idx is None:
-                self.log.append(f"В файле не найден столбец: {col_display}")
+                self._warn(f"В файле не найден столбец: {col_display}")
                 return
 
             wanted = []
@@ -203,10 +232,10 @@ class ExcelFilterApp(QWidget):
                     wanted.append((name, idx))
 
             if not wanted:
-                self.log.append("Не найдено ни одной из колонок: " + ", ".join(self.REQUIRED_OUT_HEADERS))
+                self._warn("Не найдено ни одной из колонок: " + ", ".join(self.REQUIRED_OUT_HEADERS))
                 return
             if missing:
-                self.log.append("Отсутствуют колонки: " + ", ".join(missing))
+                self._warn("Отсутствуют колонки: " + ", ".join(missing))
 
             value_date = self._try_parse_date(value_raw)
             if value_date:
@@ -251,14 +280,14 @@ class ExcelFilterApp(QWidget):
                 wb_out.save(out_path)
                 count = len(matched_rows)
                 if count == 0:
-                    self.log.append(f"Под критерий ничего не подошло. Создан файл только с заголовком: {out_path}")
+                    self._warn(f"Под критерий ничего не подошло. Создан файл только с заголовком: {out_path}")
                 else:
                     self.log.append(f"Сохранено {count} строк в файл: {out_path}")
             except PermissionError:
-                self.log.append("Не удалось сохранить: файл открыт в Excel/LibreOffice. Закройте его и повторите.")
+                self._info("Не удалось сохранить: файл открыт в Excel/LibreOffice. Закройте его и повторите.")
 
         except Exception as e:
-            self.log.append(f"Ошибка фильтрации/сохранения: {e!r}")
+            self._warn(f"Ошибка фильтрации/сохранения: {e!r}")
 
 
 def main():
