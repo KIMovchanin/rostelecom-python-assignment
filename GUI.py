@@ -5,14 +5,16 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 import sys
-import openpyxl as op
 from openpyxl import load_workbook
+
 
 class ExcelFilterApp(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Фильтр Excel — PyQt6 + openpyxl (Python 3.9)")
         self.resize(800, 420)
+        self.header_row = None
+        self.data_start_row = None
         self._build_ui()
         self._connect_signals()
 
@@ -71,32 +73,54 @@ class ExcelFilterApp(QWidget):
             self.output_edit.setText(path)
 
     def populate_columns(self, path: Path):
-        self.column_combo.clear() # очищаем старые пункты
-
+        self.column_combo.clear()
+        self.header_row = None
+        self.data_start_row = None
         try:
-            # открываем на чтение
-            wb = load_workbook(filename=str(path), read_only=True, data_only=True) # data_only = True берёт не формулы, а значения
-            # берём первый лист
+            # открываем книгу на чтение.
+            wb = load_workbook(filename=str(path), read_only=True, data_only=True)
+            # берём активный лист
             ws = wb.active
 
-            # берём список ячеек, убирая пробелы и превращая их в строки. None меняем на ""
-            headers = [str(cell.value).strip() if cell.value is not None else "" for cell in ws[1]]
-            headers = [h for h in headers if h] # убираем пустые значения
+            header_row = self._guess_header_row(ws)
 
-            # если всё пусто
+            row_vals = next(ws.iter_rows(min_row=header_row, max_row=header_row, values_only=True))
+            headers = [str(cell_value).strip() for cell_value in row_vals if cell_value not in (None, "")]
+
             if not headers:
-                self.column_combo.addItems(["- в первой строке нет заголовков -"])
-                self.log.append("В первой строке не найдены заголовки!")
+                self.column_combo.addItems(["Заголовки не найдены."])
+                self.log.append("Не удалось распознать строку заголовков.")
                 return
 
             self.column_combo.addItems(headers)
-
-            self.log.append(f"Загружены столбцы: {', '.join(headers)}")
-
+            self.header_row = header_row
+            self.data_start_row = header_row + 1
+            self.log.append(f"OK: Загружены столбцы из строки {header_row}: {', '.join(headers)}")
         except FileNotFoundError:
             self.log.append("Файл не найден. Проверь путь.")
         except Exception as e:
-            self.log.append("Ошибка при чтении Excel: {e!r}")
+            self.log.append(f"Ошибка при чтении Excel: {e!r}")
+
+    @staticmethod
+    def _norm(v) -> str:
+        return str(v).strip().casefold() if v is not None else ""
+
+    def _guess_header_row(self, ws, search_limit: int = 25) -> int:
+        expected = {self._norm(header_name) for header_name in ["ФИО", "Должность", "Отдел", "Дата найма", "Зарплата"]}
+        best_row = 1
+        best_score = -1
+        for idx, row in enumerate(ws.iter_rows(min_row=1, max_row=search_limit, values_only=True), start=1):
+            vals = [cell for cell in row if cell not in (None, "")]
+            non_empty = len(vals)
+            if non_empty == 0:
+                continue
+            lower_set = {self._norm(c) for c in vals}
+            score = non_empty
+            score += 2 * len(lower_set & expected) # чем больше совпадений с ожидаемым результатом - тогда берём
+            if score > best_score:
+                best_score = score
+                best_row = idx
+        return best_row
 
     def run_filter(self):
         self.log.append("Нажата кнопка \"Выполнить фильтрацию\" — логику добавим на следующем шаге.")
