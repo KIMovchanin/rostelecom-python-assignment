@@ -64,21 +64,6 @@ The app ships with a simple **PyQt6 GUI** and uses **openpyxl** for Excel I/O. I
 
 ---
 
-## Screenshots
-
-> Add real images later, e.g.:
->
-> `docs/`
-> ├── screenshot-main.png
-> └── screenshot-result.png
->
-> ```md
-> ![Main window](docs/screenshot-main.png)
-> ![Result in Excel](docs/screenshot-result.png)
-> ```
-
----
-
 ## How it works (high level)
 
 1. **Open file** → read with `openpyxl.load_workbook(..., read_only=True, data_only=True)`.
@@ -448,23 +433,6 @@ Permission is hereby granted, free of charge, to any person obtaining a copy
 * **Детерминированный результат**: в выходном файле только `ФИО`, `Должность`, `Отдел`, `Дата найма`, `Зарплата` — именно в этом порядке.
 * **Кроссплатформенность**: Windows и Linux (вкл. WSLg). В коде нет ОС-зависимых путей.
 * **Дружелюбные сообщения**: лог показывает действия и ошибки (например, «файл результата открыт в Excel»).
-
----
-
-## Скриншоты
-
-> Добавьте реальные изображения в `docs/` и вставьте их ниже:
->
-> ```
-> docs/
-> ├── screenshot-main.png
-> └── screenshot-result.png
-> ```
->
-> ```md
-> ![Главное окно](docs/screenshot-main.png)
-> ![Результат в Excel](docs/screenshot-result.png)
-> ```
 
 ---
 
